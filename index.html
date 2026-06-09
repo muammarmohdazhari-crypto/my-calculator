@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Integration Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fb;
+            color: #333;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 20px;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        @media (max-width: 800px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: #fafafa;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        h2 {
+            margin-top: 0;
+            color: #1a73e8;
+            font-size: 1.5rem;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #555;
+        }
+        input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            border-color: #1a73e8;
+        }
+        .bounds-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .result-box {
+            margin-top: 10px;
+            padding: 15px;
+            background: #e8f0fe;
+            border-radius: 6px;
+            border-left: 5px solid #1a73e8;
+        }
+        .result-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #1967d2;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .result-value {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #1967d2;
+            font-family: monospace;
+        }
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            border-left: 5px solid #dc3545;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            display: none;
+        }
+        #plot {
+            width: 100%;
+            height: 550px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+        .instructions {
+            font-size: 0.8rem;
+            color: #666;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sidebar">
+        <h2>Integration Calculator</h2>
+        
+        <div class="input-group">
+            <label for="functionInput">Function f(x)</label>
+            <input type="text" id="functionInput" value="x^2 - 2x + 1" placeholder="e.g., sin(x), x^2, exp(x)">
+        </div>
+
+        <div class="bounds-group">
+            <div class="input-group">
+                <label for="boundA">Lower Bound (a)</label>
+                <input type="number" id="boundA" value="0" step="any">
+            </div>
+            <div class="input-group">
+                <label for="boundB">Upper Bound (b)</label>
+                <input type="number" id="boundB" value="3" step="any">
+            </div>
+        </div>
+
+        <div id="errorBox" class="error"></div>
+
+        <div class="result-box">
+            <div class="result-title">Definite Integral Value</div>
+            <div id="result" class="result-value">0</div>
+        </div>
+
+        <div class="instructions">
+            <strong>Supported Syntax:</strong><br>
+            • Powers: <code>x^2</code><br>
+            • Multiplication: <code>2*x</code> or <code>2x</code><br>
+            • Functions: <code>sin(x)</code>, <code>cos(x)</code>, <code>tan(x)</code>, <code>log(x)</code>, <code>exp(x)</code>, <code>sqrt(x)</code>
+        </div>
+    </div>
+
+    <div id="plot"></div>
+</div>
+
+<script>
+    // Get DOM elements
+    const functionInput = document.getElementById('functionInput');
+    const boundAInput = document.getElementById('boundA');
+    const boundBInput = document.getElementById('boundB');
+    const resultDiv = document.getElementById('result');
+    const errorBox = document.getElementById('errorBox');
+
+    // Attach real-time input event listeners
+    functionInput.addEventListener('input', calculateAndPlot);
+    boundAInput.addEventListener('input', calculateAndPlot);
+    boundBInput.addEventListener('input', calculateAndPlot);
+
+    // Initial run on page load
+    window.onload = () => {
+        calculateAndPlot();
+    };
+
+    // Numerical integration using Simpson's Rule
+    function simpsonsRule(f, a, b, n = 1000) {
+        if (n % 2 !== 0) n++; // n must be even
+        const h = (b - a) / n;
+        let sum = f(a) + f(b);
+
+        for (let i = 1; i < n; i++) {
+            const x = a + i * h;
+            sum += i % 2 === 0 ? 2 * f(x) : 4 * f(x);
+        }
+        return (h / 3) * sum;
+    }
+
+    function calculateAndPlot() {
+        // Clear errors
+        errorBox.style.display = 'none';
+        errorBox.innerText = '';
+
+        const exprString = functionInput.value.trim();
+        const a = parseFloat(boundAInput.value);
+        const b = parseFloat(boundBInput.value);
+
+        if (!exprString) return;
+        if (isNaN(a) || isNaN(b)) {
+            showError("Please enter valid numbers for bounds a and b.");
+            return;
+        }
+
+        try {
+            // Compile expression via Math.js
+            const compiledExpr = math.compile(exprString);
+            
+            // Helper function to evaluate safely
+            const f = (xVal) => compiledExpr.evaluate({ x: xVal });
+
+            // 1. Calculate Integral
+            let integralVal = simpsonsRule(f, a, b);
+            
+            // Format result (round off standard floating point noise)
+            if (Math.abs(integralVal) < 1e-12) integralVal = 0;
+            resultDiv.innerText = Number(integralVal.toFixed(5)).toString();
+
+            // 2. Generate Graph Data
+            // Expand graph padding beyond the limits of a and b to give context
+            const width = Math.abs(b - a) || 4;
+            const xMinPlot = Math.min(a, b) - width * 0.5 - 1;
+            const xMaxPlot = Math.max(a, b) + width * 0.5 + 1;
+            
+            const xValues = [];
+            const yValues = [];
+            const steps = 300;
+            const stepSize = (xMaxPlot - xMinPlot) / steps;
+
+            for (let i = 0; i <= steps; i++) {
+                let currX = xMinPlot + i * stepSize;
+                xValues.push(currX);
+                try {
+                    let currY = f(currX);
+                    // Handle edge cases like 1/x resulting in Infinity
+                    yValues.push(typeof currY === 'number' && isFinite(currY) ? currY : null);
+                } catch(e) {
+                    yValues.push(null);
+                }
+            }
+
+            // 3. Generate Shaded Area Data (Integral Bounds)
+            const xShade = [];
+            const yShade = [];
+            const shadeSteps = 200;
+            const minBound = Math.min(a, b);
+            const maxBound = Math.max(a, b);
+            const shadeStepSize = (maxBound - minBound) / shadeSteps;
+
+            // Start filling at the lower boundary baseline y=0
+            xShade.push(minBound);
+            yShade.push(0);
+
+            for (let i = 0; i <= shadeSteps; i++) {
+                let currX = minBound + i * shadeStepSize;
+                xShade.push(currX);
+                try {
+                    let currY = f(currX);
+                    yShade.push(typeof currY === 'number' && isFinite(currY) ? currY : 0);
+                } catch {
+                    yShade.push(0);
+                }
+            }
+
+            // End filling at the upper boundary baseline y=0
+            xShade.push(maxBound);
+            yShade.push(0);
+
+            // Traces for Plotly
+            const mainCurve = {
+                x: xValues,
+                y: yValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'f(x)',
+                line: { color: '#1a73e8', width: 3 }
+            };
+
+            const shadedArea = {
+                x: xShade,
+                y: yShade,
+                fill: 'toself',
+                fillcolor: 'rgba(26, 115, 232, 0.25)',
+                type: 'scatter',
+                mode: 'none',
+                name: 'Area',
+                hoverinfo: 'skip'
+            };
+
+            const layout = {
+                xaxis: { title: 'x', zeroline: true, zerolinecolor: '#888' },
+                yaxis: { title: 'y', zeroline: true, zerolinecolor: '#888' },
+                margin: { t: 40, b: 40, l: 50, r: 20 },
+                hovermode: 'closest',
+                showlegend: false
+            };
+
+            Plotly.newPlot('plot', [shadedArea, mainCurve], layout, { responsive: true });
+
+        } catch (err) {
+            showError("Invalid function syntax. Make sure operators (*, ^) are accurate.");
+            console.error(err);
+        }
+    }
+
+    function showError(msg) {
+        errorBox.innerText = msg;
+        errorBox.style.display = 'block';
+        resultDiv.innerText = "Error";
+    }
+</script>
+
+</body>
+</html>
